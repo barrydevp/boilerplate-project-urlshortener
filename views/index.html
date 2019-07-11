@@ -1,48 +1,120 @@
-<!DOCTYPE html>
+'use strict';
 
-<html>
+var express = require('express');
+var mongo = require('mongodb');
+var mongoose = require('mongoose');
+var bodyParser = require('body-parser')
+var cors = require('cors');
+var dns = require("dns");
 
-   <head>
-      <title>URL Shortener</title>
-      <link rel="shortcut icon" href="https://cdn.hyperdev.com/us-east-1%3A52a203ff-088b-420f-81be-45bf559d01b1%2Ffavicon.ico" type="image/x-icon"/>
-      <link href="https://fonts.googleapis.com/css?family=Roboto" rel="stylesheet" type="text/css">
-      <link href="/public/style.css" rel="stylesheet" type="text/css">
-   </head>
+mongoose.connect(process.env.MONGOLAB_URI);
+var app = express();
+let Schema = mongoose.Schema;
 
-   <body>
-      <div class="container">
-        <h2>API Project: URL Shortener Microservice</h2>
-        <h3>User Story: </h3>
-        <ol>
-          <li>I can POST a URL to <code>[project_url]/api/shorturl/new</code> and I will receive a shortened URL in the JSON response.<br>Example : <code>{"original_url":"www.google.com","short_url":1}</code></li>
-          <li>If I pass an invalid URL that doesn't follow the <code>http(s)://www.example.com(/more/routes)</code> format, the JSON response will contain an error like <code>{"error":"invalid URL"}</code><br>
-          HINT: to be sure that the submitted url points to a valid site you can use the function <code>dns.lookup(host, cb)</code> from the <code>dns</code> core module.</li>
-          <li>When I visit the shortened URL, it will redirect me to my original link.</li>
-        </ol>
-        
-        <h3>Short URL Creation </h3>
-        <p>
-          example: <code>POST [project_url]/api/shorturl/new</code> - <code>https://www.google.com</code>
-        </p>
-        <form action="api/shorturl/new" method="POST">
-          <label for="url_input">URL to be shortened</label>
-          <input id="url_input" type="text" name="url" value="https://www.freecodecamp.org">
-          <input type="submit" value="POST URL">
-        </form>
-        <h3>Example Usage:</h3>
-        <a href="https://thread-paper.glitch.me/api/shorturl/3">
-          [this_project_url]/api/shorturl/3
-        </a>
+// Basic Configuration 
+var port = process.env.PORT || 3000;
 
-        <h3>Will Redirect to:</h3>
-        <p>https://www.freecodecamp.org/forum/</p>
-      </div>
-      <div class="footer">
-        <p>
-          by <a href="https://www.freecodecamp.org">freeCodeCamp</a>
-        </p>
-      </div>
-   </body>
+/** this project needs a db !! **/ 
 
+let shortUrlModel = mongoose.model('ShortUrl', new Schema({
+  original_url: {
+    type: String,
+    required: true
+  },
+  short_url: {
+    type: String,
+    required: true
+  }
+}));
 
-</html>
+app.use(cors());
+
+/** this project needs to parse POST bodies **/
+// you should mount the body-parser here
+app.use(bodyParser.json()); // for parsing application/json
+app.use(bodyParser.urlencoded({ extended: true })); // for parsing application/x-www-form-urlencoded
+
+app.use('/public', express.static(process.cwd() + '/public'));
+
+app.get('/', function(req, res){
+  res.sendFile(process.cwd() + '/views/index.html');
+});
+
+  
+// your first API endpoint... 
+app.get("/api/hello", function (req, res) {
+  res.json({greeting: 'hello API'});
+});
+
+app.post("/api/shorturl/new", (req, res) => {
+  let url = req.body.url.replace(/https:\/\/|http:\/\/|www./g, '');
+  //console.log(url);
+  dns.lookup(url, (err) => {
+    if(err){
+      console.log(err);
+      res.json({"error":"invalid URL"});
+    }
+    //res.send("success");
+    console.log('call');
+    console.log(url);
+    shortUrlModel.find({ original_url: url }, (err, data) => {
+      console.log('call1');
+      if(err) res.json({"error":"invalid URL"});
+      //console.log(data);
+      else
+      if(data[0]) {
+        //res.send('abc');
+        // shortUrlModel.deleteMany((err, data)=>{
+        //   if(err) res.send(err);
+        //   res.json(data);
+        // })
+        res.json({
+          original_url : data[0].original_url,
+          short_url: data[0].short_url
+        });
+      }
+      else {
+        shortUrlModel.find().estimatedDocumentCount((err, count) => {
+          //console.log('call2');
+          if(err) res.json({"error":"invalid URL"});
+          else {
+            let shortUrlDoc = new shortUrlModel({
+              original_url: url,
+              short_url: String(count + 1)
+            });
+            shortUrlDoc.save((err, data) => {
+              //console.log('call3');
+              if(err) res.json({"error":"invalid URL"});
+              else res.json({
+                original_url : data.original_url,
+                short_url: data.short_url
+              });
+            });
+            // shortUrlDoc.save().select('+original_url +short_url').exec((err, data) => {
+            //   console.log('call3');
+            //   if(err) res.json({"error":"invalid URL"});
+            //   else res.json(data);
+            // });
+          }
+        });
+      }
+    });
+  })
+});
+
+app.get("/api/shorturl/:short_url", (req, res) => {
+  //console.log(req.params.short_url);
+  let short_url = req.params.short_url;
+  shortUrlModel.findOne({short_url: short_url}, (err, data) => {
+    if(err) res.json({"error":"No short url found for given input"});
+    else {
+      if(data){
+        //console.log(data.original_url);
+        res.redirect('https://www.' + data.original_url);
+      } else res.json({"error":"No short url found for given input"});
+    }
+  })
+})
+app.listen(port, function () {
+  console.log('Node.js listening ...');
+});
